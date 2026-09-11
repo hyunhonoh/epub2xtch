@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "epub2xtch"
+version = "0.1.0"
+description = "EPUB → XTEink X3/X4 XTC/XTCH 로컬 변환기 (macOS 네이티브, Calibre 불필요)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "hyunhonoh" }]
+keywords = ["xteink", "xtc", "xtch", "epub", "ereader", "eink", "crosspoint"]
+dependencies = [
+    "pymupdf>=1.28",
+    "Pillow>=11",
+    "numpy>=2",
+]
+
+[project.scripts]
+epub2xtch = "epub2xtch.cli:main"
+xtc-view = "epub2xtch.viewer:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/epub2xtch"]
