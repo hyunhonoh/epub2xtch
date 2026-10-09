@@ -6,3 +6,4 @@ build/
 *.egg-info/
 *.xtc
 *.preview.pdf
+.DS_Store

@@ -58,7 +58,7 @@ DEVICES = {
 }
 
 DEFAULT_FONTSIZE = 22
-DEFAULT_MARGIN_PCT = 4.0  # 화면 폭 대비 균일 여백(%). 0=여백 없음
+DEFAULT_MARGIN_PCT = 2.5  # 실제 남는 좌우 여백(%). 0=끝까지 꽉. overscan+crop로 맞춘다
 
 HEADER_SIZE = 56
 PAGE_TABLE_ENTRY_SIZE = 16
@@ -149,6 +149,59 @@ def render_epub_pages(epub_path: str, width: int, height: int, fontsize: int = D
     pages = _render_doc(doc, width, height, margin)
     doc.close()
     return pages
+
+
+def _measure_left_margin(doc, sample: int = 7) -> int | None:
+    """리플로우 페이지들에서 본문 먹(검정)이 실제로 시작하는 좌측 여백(px)을 실측.
+    MuPDF가 리플로우 시 넣는 구조적 좌여백을 알아내 overscan 양을 정하는 데 쓴다.
+    표지·전면 이미지 페이지에 흔들리지 않도록 표본의 '중앙값'을 쓴다. numpy 없으면 None."""
+    if np is None:
+        return None
+    n = len(doc)
+    if n == 0:
+        return 0
+    fracs = (0.15, 0.3, 0.45, 0.5, 0.6, 0.75, 0.9)
+    idxs = sorted({min(n - 1, max(0, int(n * f))) for f in fracs})[:sample]
+    lefts: list[int] = []
+    for i in idxs:
+        pix = doc[i].get_pixmap(colorspace=pymupdf.csGRAY, alpha=False)
+        a = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
+        cols = (a < 128).any(axis=0)
+        if cols.any():
+            lefts.append(int(cols.argmax()))
+    if not lefts:
+        return 0
+    return int(np.median(lefts))
+
+
+def _render_fill(epub_path: str, w: int, h: int, fontsize: int,
+                 font: str | None, font_bold: str | None, target_m: int):
+    """좌우를 target_m(px) 여백만 남기고 꽉 채워 렌더.
+    MuPDF 구조적 좌여백 R을 실측해 (R-target_m)만큼 더 넓게 레이아웃(overscan)한 뒤
+    양옆을 잘라내 실제 여백을 target_m으로 맞춘다. 세로는 MuPDF 기본 흐름을 유지(잘림 방지).
+    반환: (열린 doc, 페이지 이미지 리스트). doc은 목차 추출용이라 호출측에서 닫는다."""
+    # 1) 화면 폭 기준으로 구조적 좌여백 R 실측
+    probe = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, 0)
+    R = _measure_left_margin(probe)
+    probe.close()
+    if R is None:  # numpy 폴백: 기존 캔버스-패딩 방식
+        doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, target_m)
+        return doc, _render_doc(doc, w, h, target_m)
+    over = max(0, R - target_m)         # 한쪽당 넘겨서 자를 양
+    lw = w + 2 * over                    # overscan 폭
+    doc = _open_laid_out(epub_path, lw, h, fontsize, font, font_bold, True, 0)
+    # overscan 후 실제 좌여백 재측정 → crop 양 보정(구조적 여백이 폭에 안 변한다는 가정 검증)
+    r1 = _measure_left_margin(doc)
+    c = max(0, (r1 if r1 is not None else R) - target_m)
+    pages: list[Image.Image] = []
+    for page in doc:
+        pix = page.get_pixmap(colorspace=pymupdf.csGRAY, alpha=False)
+        img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+        canvas = Image.new("L", (w, h), 255)
+        box = img.crop((c, 0, min(c + w, img.width), min(h, img.height)))
+        canvas.paste(box, (0, 0))
+        pages.append(canvas)
+    return doc, pages
 
 
 def extract_chapters(doc, page_count: int) -> list[tuple[str, int, int]]:
@@ -338,9 +391,14 @@ def epub_to_xtc(epub_path: str, out_path: str, *, device: str = "x3",
     if font is None:
         font, font_bold = default_font()
     w, h = DEVICES[device]
-    margin = round(w * margin_pct / 100) if trim_margins else 0
-    doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, trim_margins, margin)
-    pages = _render_doc(doc, w, h, margin)
+    if trim_margins:
+        # 좌우를 margin_pct 여백만 남기고 꽉 채움(overscan+crop)
+        target_m = round(w * margin_pct / 100)
+        doc, pages = _render_fill(epub_path, w, h, fontsize, font, font_bold, target_m)
+    else:
+        # 책 원본 여백 유지
+        doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, False, 0)
+        pages = _render_doc(doc, w, h, 0)
     chapters = extract_chapters(doc, len(pages)) if toc else []
     doc.close()
     if not title:

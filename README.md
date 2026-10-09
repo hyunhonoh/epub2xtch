@@ -23,9 +23,9 @@ uv tool install git+https://github.com/hyunhonoh/epub2xtch                # 명�
 ## 사용법
 
 ```bash
-epub2xtch 책.epub                     # 기본값: X3 / 22pt / 2비트 / 여백 4%
+epub2xtch 책.epub                     # 기본값: X3 / 22pt / 2비트 / 좌우 여백 2.5%
 epub2xtch 책.epub out.xtc -d x4 -b 1   # X4, 1비트
-epub2xtch 책.epub -f 24 --margin 3     # 글자 크게, 여백 3%
+epub2xtch 책.epub -f 24 --margin 0     # 글자 크게, 좌우 끝까지 꽉
 epub2xtch 책.epub --invert            # 기기에서 명암이 반전돼 보이면
 ```
 
@@ -34,7 +34,7 @@ epub2xtch 책.epub --invert            # 기기에서 명암이 반전돼 보이
 | `-d, --device {x3,x4}` | 대상 기기 (X3=528×792, X4=480×800) | `x3` |
 | `-b, --bits {1,2}` | 2=XTCH(4단계), 1=XTC(흑백) | `2` |
 | `-f, --fontsize` | 본문 폰트 크기(pt) | `22` |
-| `--margin` | 화면 폭 대비 여백 %(0=없음) | `4` |
+| `--margin` | 남는 좌우 여백 %(0=끝까지 꽉, 내부 overscan+crop) | `2.5` |
 | `--no-trim` | 여백 정규화 끄기(책 원본 유지) | 정규화 |
 | `--font` / `--font-bold` | 렌더 폰트 직접 지정 | — |
 | `--no-font` | MuPDF 내장 폰트로 | — |

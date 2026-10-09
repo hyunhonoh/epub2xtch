@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-font", action="store_true", help="MuPDF 내장 폰트로 렌더(KoPub 다운로드 안 함)")
     ap.add_argument("--no-trim", action="store_true", help="여백 정규화 끄기(책 원본 여백 유지)")
     ap.add_argument("--margin", type=float, default=DEFAULT_MARGIN_PCT,
-                    help="화면 폭 대비 균일 여백 %%(기본 4, 0=여백 없음)")
+                    help="남는 좌우 여백 %%(기본 2.5, 0=끝까지 꽉 채움). 내부 overscan+crop")
     ap.add_argument("--author", default="")
     args = ap.parse_args(argv)
 
