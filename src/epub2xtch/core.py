@@ -155,55 +155,71 @@ def render_epub_pages(epub_path: str, width: int, height: int, fontsize: int = D
     return pages
 
 
-def _measure_left_margin(doc, sample: int = 7) -> int | None:
-    """리플로우 페이지들에서 본문 먹(검정)이 실제로 시작하는 좌측 여백(px)을 실측.
-    MuPDF가 리플로우 시 넣는 구조적 좌여백을 알아내 overscan 양을 정하는 데 쓴다.
-    표지·전면 이미지 페이지에 흔들리지 않도록 표본의 '중앙값'을 쓴다. numpy 없으면 None."""
+def _measure_margins(doc, height: int) -> tuple[int, int, int] | None:
+    """리플로우 페이지들에서 본문 먹(검정)이 실제로 시작/끝나는 구조적 여백을 실측.
+    반환: (좌, 상, 하) px. overscan 양을 정하는 데 쓴다. numpy 없으면 None.
+    좌·상은 표본 중앙값(표지/이미지 페이지에 둔감), 하는 '가장 꽉 찬 페이지' 기준(min 여백)."""
     if np is None:
         return None
     n = len(doc)
     if n == 0:
-        return 0
-    fracs = (0.15, 0.3, 0.45, 0.5, 0.6, 0.75, 0.9)
-    idxs = sorted({min(n - 1, max(0, int(n * f))) for f in fracs})[:sample]
+        return (0, 0, 0)
+    fracs = (0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+    idxs = sorted({min(n - 1, max(0, int(n * f))) for f in fracs})
     lefts: list[int] = []
+    tops: list[int] = []
+    botgaps: list[int] = []
     for i in idxs:
         pix = doc[i].get_pixmap(colorspace=pymupdf.csGRAY, alpha=False)
         a = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
-        cols = (a < 128).any(axis=0)
+        dark = a < 128
+        cols = dark.any(axis=0)
+        rows = dark.any(axis=1)
         if cols.any():
             lefts.append(int(cols.argmax()))
+        if rows.any():
+            tops.append(int(rows.argmax()))
+            botgaps.append(int(height - 1 - int(rows[::-1].argmax())))
     if not lefts:
-        return 0
-    return int(np.median(lefts))
+        return (0, 0, 0)
+    left = int(np.median(lefts))
+    top = int(np.median(tops)) if tops else 0
+    bottom = min(botgaps) if botgaps else 0   # 꽉 찬 페이지의 하단 여백 = 구조적 하단 여백
+    return (left, top, bottom)
 
 
 def _render_fill(epub_path: str, w: int, h: int, fontsize: int,
                  font: str | None, font_bold: str | None, target_m: int,
                  line_spacing: float | None = None):
-    """좌우를 target_m(px) 여백만 남기고 꽉 채워 렌더.
-    MuPDF 구조적 좌여백 R을 실측해 (R-target_m)만큼 더 넓게 레이아웃(overscan)한 뒤
-    양옆을 잘라내 실제 여백을 target_m으로 맞춘다. 세로는 MuPDF 기본 흐름을 유지(잘림 방지).
+    """상하좌우 네 면을 target 여백만 남기고 꽉 채워 렌더.
+    MuPDF 구조적 여백(좌·상·하)을 실측해 그만큼 더 넓고/높게 레이아웃(overscan)한 뒤
+    가장자리를 잘라내 실제 여백을 목표치로 맞춘다. 마지막 줄은 잘리지 않는다.
     반환: (열린 doc, 페이지 이미지 리스트). doc은 목차 추출용이라 호출측에서 닫는다."""
-    # 1) 화면 폭 기준으로 구조적 좌여백 R 실측
+    target_v = round(target_m * h / w)   # 세로 목표 여백(같은 %)
+    # 1) 화면 크기 기준으로 구조적 여백 실측
     probe = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, 0, line_spacing)
-    R = _measure_left_margin(probe)
+    m = _measure_margins(probe, h)
     probe.close()
-    if R is None:  # numpy 폴백: 기존 캔버스-패딩 방식
+    if m is None:  # numpy 폴백: 기존 캔버스-패딩 방식
         doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, target_m, line_spacing)
         return doc, _render_doc(doc, w, h, target_m)
-    over = max(0, R - target_m)         # 한쪽당 넘겨서 자를 양
-    lw = w + 2 * over                    # overscan 폭
-    doc = _open_laid_out(epub_path, lw, h, fontsize, font, font_bold, True, 0, line_spacing)
-    # overscan 후 실제 좌여백 재측정 → crop 양 보정(구조적 여백이 폭에 안 변한다는 가정 검증)
-    r1 = _measure_left_margin(doc)
-    c = max(0, (r1 if r1 is not None else R) - target_m)
+    rl, rt, rb = m
+    ox = max(0, rl - target_m)                      # 좌우 각각 넘길 양
+    oyt = max(0, rt - target_v)                      # 상단 넘길 양
+    oyb = max(0, rb - target_v)                      # 하단 넘길 양
+    lw = w + 2 * ox                                  # overscan 폭
+    lh = h + oyt + oyb                               # overscan 높이
+    doc = _open_laid_out(epub_path, lw, lh, fontsize, font, font_bold, True, 0, line_spacing)
+    # overscan 후 좌여백 재측정 → 좌 crop 보정(상·하는 구조값 그대로 사용)
+    m2 = _measure_margins(doc, lh)
+    cx = max(0, ((m2[0] if m2 else rl)) - target_m)
+    cy = oyt
     pages: list[Image.Image] = []
     for page in doc:
         pix = page.get_pixmap(colorspace=pymupdf.csGRAY, alpha=False)
         img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
         canvas = Image.new("L", (w, h), 255)
-        box = img.crop((c, 0, min(c + w, img.width), min(h, img.height)))
+        box = img.crop((cx, cy, min(cx + w, img.width), min(cy + h, img.height)))
         canvas.paste(box, (0, 0))
         pages.append(canvas)
     return doc, pages
