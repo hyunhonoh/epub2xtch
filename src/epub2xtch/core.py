@@ -108,8 +108,9 @@ def _quiet_mupdf():
         pass
 
 
-def _apply_user_css(font: str | None, font_bold: str | None, trim_margins: bool = False):
-    """렌더 폰트/여백을 사용자 CSS로 강제. 최종 그림에 반영되므로 기기 내장폰트와 무관."""
+def _apply_user_css(font: str | None, font_bold: str | None, trim_margins: bool = False,
+                    line_spacing: float | None = None):
+    """렌더 폰트/여백/줄간격을 사용자 CSS로 강제. 최종 그림에 반영되므로 기기 내장폰트와 무관."""
     mu = pymupdf.mupdf
     parts = []
     if font:
@@ -121,6 +122,8 @@ def _apply_user_css(font: str | None, font_bold: str | None, trim_margins: bool 
         parts.append('*{font-family:"UF" !important}')
     if trim_margins:
         parts.append(_TRIM_CSS)
+    if line_spacing:
+        parts.append(f'*{{line-height:{line_spacing} !important}}')
     mu.fz_set_user_css("".join(parts))
     if parts:
         try:
@@ -131,9 +134,10 @@ def _apply_user_css(font: str | None, font_bold: str | None, trim_margins: bool 
 
 def _open_laid_out(epub_path: str, width: int, height: int, fontsize: int,
                    font: str | None = None, font_bold: str | None = None,
-                   trim_margins: bool = False, margin: int = 0):
+                   trim_margins: bool = False, margin: int = 0,
+                   line_spacing: float | None = None):
     _quiet_mupdf()
-    _apply_user_css(font, font_bold, trim_margins)
+    _apply_user_css(font, font_bold, trim_margins, line_spacing)
     doc = pymupdf.open(epub_path)
     try:
         doc.layout(width=width - 2 * margin, height=height - 2 * margin, fontsize=fontsize)
@@ -175,21 +179,22 @@ def _measure_left_margin(doc, sample: int = 7) -> int | None:
 
 
 def _render_fill(epub_path: str, w: int, h: int, fontsize: int,
-                 font: str | None, font_bold: str | None, target_m: int):
+                 font: str | None, font_bold: str | None, target_m: int,
+                 line_spacing: float | None = None):
     """좌우를 target_m(px) 여백만 남기고 꽉 채워 렌더.
     MuPDF 구조적 좌여백 R을 실측해 (R-target_m)만큼 더 넓게 레이아웃(overscan)한 뒤
     양옆을 잘라내 실제 여백을 target_m으로 맞춘다. 세로는 MuPDF 기본 흐름을 유지(잘림 방지).
     반환: (열린 doc, 페이지 이미지 리스트). doc은 목차 추출용이라 호출측에서 닫는다."""
     # 1) 화면 폭 기준으로 구조적 좌여백 R 실측
-    probe = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, 0)
+    probe = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, 0, line_spacing)
     R = _measure_left_margin(probe)
     probe.close()
     if R is None:  # numpy 폴백: 기존 캔버스-패딩 방식
-        doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, target_m)
+        doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, True, target_m, line_spacing)
         return doc, _render_doc(doc, w, h, target_m)
     over = max(0, R - target_m)         # 한쪽당 넘겨서 자를 양
     lw = w + 2 * over                    # overscan 폭
-    doc = _open_laid_out(epub_path, lw, h, fontsize, font, font_bold, True, 0)
+    doc = _open_laid_out(epub_path, lw, h, fontsize, font, font_bold, True, 0, line_spacing)
     # overscan 후 실제 좌여백 재측정 → crop 양 보정(구조적 여백이 폭에 안 변한다는 가정 검증)
     r1 = _measure_left_margin(doc)
     c = max(0, (r1 if r1 is not None else R) - target_m)
@@ -384,7 +389,8 @@ def epub_to_xtc(epub_path: str, out_path: str, *, device: str = "x3",
                 bit_depth: int = 2, fontsize: int = DEFAULT_FONTSIZE, invert: bool = False,
                 title: str = "", author: str = "", toc: bool = True,
                 font: str | None = None, font_bold: str | None = None,
-                trim_margins: bool = True, margin_pct: float = DEFAULT_MARGIN_PCT) -> int:
+                trim_margins: bool = True, margin_pct: float = DEFAULT_MARGIN_PCT,
+                line_spacing: float | None = None) -> int:
     if device not in DEVICES:
         raise ValueError(f"알 수 없는 기기: {device} (선택: {', '.join(DEVICES)})")
     # font=None → 기본 KoPub 바탕 자동. font="" → MuPDF 기본. font=경로 → 그 폰트.
@@ -394,10 +400,10 @@ def epub_to_xtc(epub_path: str, out_path: str, *, device: str = "x3",
     if trim_margins:
         # 좌우를 margin_pct 여백만 남기고 꽉 채움(overscan+crop)
         target_m = round(w * margin_pct / 100)
-        doc, pages = _render_fill(epub_path, w, h, fontsize, font, font_bold, target_m)
+        doc, pages = _render_fill(epub_path, w, h, fontsize, font, font_bold, target_m, line_spacing)
     else:
         # 책 원본 여백 유지
-        doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, False, 0)
+        doc = _open_laid_out(epub_path, w, h, fontsize, font, font_bold, False, 0, line_spacing)
         pages = _render_doc(doc, w, h, 0)
     chapters = extract_chapters(doc, len(pages)) if toc else []
     doc.close()

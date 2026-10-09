@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-trim", action="store_true", help="여백 정규화 끄기(책 원본 여백 유지)")
     ap.add_argument("--margin", type=float, default=DEFAULT_MARGIN_PCT,
                     help="남는 좌우 여백 %%(기본 2.5, 0=끝까지 꽉 채움). 내부 overscan+crop")
+    ap.add_argument("--line-spacing", type=float, default=None,
+                    help="줄간격(line-height 배수) 강제. 예 1.6(e-ink 권장). 미지정 시 책 기본")
     ap.add_argument("--author", default="")
     args = ap.parse_args(argv)
 
@@ -41,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     n = epub_to_xtc(args.input, out, device=args.device, bit_depth=args.bits,
                     fontsize=args.fontsize, invert=args.invert, author=args.author,
                     toc=not args.no_toc, font=font, font_bold=font_bold,
-                    trim_margins=not args.no_trim, margin_pct=args.margin)
+                    trim_margins=not args.no_trim, margin_pct=args.margin,
+                    line_spacing=args.line_spacing)
     size = Path(out).stat().st_size
     print(f"✅ {n}페이지 → {out}  ({size / 1024:.0f} KB, {args.device}, {args.bits}bit)")
     return 0

@@ -27,6 +27,9 @@ epub2xtch 책.epub                     # 기본값: X3 / 22pt / 2비트 / 좌우
 epub2xtch 책.epub out.xtc -d x4 -b 1   # X4, 1비트
 epub2xtch 책.epub -f 24 --margin 0     # 글자 크게, 좌우 끝까지 꽉
 epub2xtch 책.epub --invert            # 기기에서 명암이 반전돼 보이면
+
+# 순정 펌웨어 실기 권장 예시(명암 반전 + 넉넉한 글자 + 좁은 줄간격 + 외부 폰트)
+epub2xtch 책.epub --invert -f 30 --line-spacing 1.6 --font 폰트.ttf --font-bold 폰트.ttf
 ```
 
 | 옵션 | 설명 | 기본 |
@@ -35,6 +38,7 @@ epub2xtch 책.epub --invert            # 기기에서 명암이 반전돼 보이
 | `-b, --bits {1,2}` | 2=XTCH(4단계), 1=XTC(흑백) | `2` |
 | `-f, --fontsize` | 본문 폰트 크기(pt) | `22` |
 | `--margin` | 남는 좌우 여백 %(0=끝까지 꽉, 내부 overscan+crop) | `2.5` |
+| `--line-spacing` | 줄간격(line-height 배수) 강제. 예 `1.6`(책 줄간격이 넓을 때) | 책 기본 |
 | `--no-trim` | 여백 정규화 끄기(책 원본 유지) | 정규화 |
 | `--font` / `--font-bold` | 렌더 폰트 직접 지정 | — |
 | `--no-font` | MuPDF 내장 폰트로 | — |
