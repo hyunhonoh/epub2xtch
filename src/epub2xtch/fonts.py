@@ -21,14 +21,21 @@ LICENSE_PAGE = "https://www.kopus.org/biz-electronic-font2/"
 # 공식 배포 zip (연 단위로 갱신될 수 있음 → 실패 시 위 페이지로 안내)
 OFFICIAL_ZIP = "https://www.kopus.org/wp-content/uploads/2026/04/KOPUBWORLD_TTF_FONTS2026.zip"
 
-# zip 내부 파일명 → 캐시 저장명
-MEMBERS = {
-    "regular": ("KoPubWorld Batang Medium.ttf", "KoPubWorldBatangMedium.ttf"),
-    "bold": ("KoPubWorld Batang Bold.ttf", "KoPubWorldBatangBold.ttf"),
+# 패밀리별 zip 내부 파일명 → 캐시 저장명
+FAMILIES = {
+    "batang": {  # 바탕(명조/세리프)
+        "regular": ("KoPubWorld Batang Medium.ttf", "KoPubWorldBatangMedium.ttf"),
+        "bold": ("KoPubWorld Batang Bold.ttf", "KoPubWorldBatangBold.ttf"),
+    },
+    "dotum": {   # 돋움(고딕/산세리프)
+        "regular": ("KoPubWorld Dotum Medium.ttf", "KoPubWorldDotumMedium.ttf"),
+        "bold": ("KoPubWorld Dotum Bold.ttf", "KoPubWorldDotumBold.ttf"),
+    },
 }
+MEMBERS = FAMILIES["batang"]  # 하위호환(기본 바탕)
 
 _LICENSE_NOTICE = f"""\
-[epub2xtch] 한글 조판용 기본 폰트로 'KoPub World 바탕체'(한국출판인회의, 무료)를 공식 배포처에서 받아 사용합니다.
+[epub2xtch] 한글 조판용으로 'KoPub World 글꼴(바탕/돋움)'(한국출판인회의, 무료)을 공식 배포처에서 받아 사용합니다.
   · 공식/라이선스: {LICENSE_PAGE} (정보 등록 후 무료 사용, 폰트 파일 재배포·수정·판매는 별도 조건)
   · 공식 파일을 당신의 기기 캐시로 내려받아 렌더링에만 사용합니다(재배포 아님).
   · 다운로드·사용 시 위 라이선스에 동의하는 것으로 간주합니다. 원치 않으면 --no-font(내장 폰트) 또는 --font 로 지정하세요.
@@ -53,16 +60,18 @@ def _valid_font(path: Path) -> bool:
         return False
 
 
-def cached() -> tuple[str | None, str | None]:
+def cached(family: str = "batang") -> tuple[str | None, str | None]:
+    members = FAMILIES.get(family, FAMILIES["batang"])
     d = cache_dir()
-    reg = d / MEMBERS["regular"][1]
-    bold = d / MEMBERS["bold"][1]
+    reg = d / members["regular"][1]
+    bold = d / members["bold"][1]
     if _valid_font(reg):
         return str(reg), (str(bold) if _valid_font(bold) else None)
     return None, None
 
 
-def _download_official() -> bool:
+def _download_official(family: str = "batang") -> bool:
+    members = FAMILIES.get(family, FAMILIES["batang"])
     d = cache_dir()
     try:
         print(f"[epub2xtch] 공식 폰트 zip 다운로드: {OFFICIAL_ZIP}", file=sys.stderr)
@@ -70,12 +79,12 @@ def _download_official() -> bool:
             blob = resp.read()
         with zipfile.ZipFile(io.BytesIO(blob)) as z:
             names = set(z.namelist())
-            for member, saveas in MEMBERS.values():
+            for member, saveas in members.values():
                 if member not in names:
                     print(f"[epub2xtch] zip에 {member} 없음(배포 구성 변경?).", file=sys.stderr)
                     return False
                 (d / saveas).write_bytes(z.read(member))
-        reg, _ = cached()
+        reg, _ = cached(family)
         return reg is not None
     except Exception as e:
         print(f"[epub2xtch] 폰트 다운로드 실패: {e}\n"
@@ -84,14 +93,15 @@ def _download_official() -> bool:
         return False
 
 
-def ensure_kopub() -> tuple[str | None, str | None]:
-    """KoPub World 바탕을 확보한다. 캐시에 있으면 그대로, 없으면 공식에서 자동 다운로드.
-    다운로드·사용 자체를 라이선스 동의로 간주한다(별도 프롬프트 없음).
-    네트워크 실패 시 (None, None) → 호출부가 MuPDF 내장 폰트로 폴백."""
-    c = cached()
+def ensure_kopub(family: str = "batang") -> tuple[str | None, str | None]:
+    """KoPub World 폰트를 확보한다(family: 'batang' 바탕 / 'dotum' 돋움).
+    캐시에 있으면 그대로, 없으면 공식에서 자동 다운로드. 다운로드·사용 자체를
+    라이선스 동의로 간주한다(별도 프롬프트 없음). 네트워크 실패 시 (None, None)
+    → 호출부가 MuPDF 내장 폰트로 폴백."""
+    c = cached(family)
     if c[0]:
         return c
     print(_LICENSE_NOTICE, file=sys.stderr)
-    if _download_official():
-        return cached()
+    if _download_official(family):
+        return cached(family)
     return None, None
